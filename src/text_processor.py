@@ -48,16 +48,19 @@ class TextProcessor:
         if len(word) <= 3:
             return word
 
-        # Step 1: Basic plural and past-tense suffixes
+        # Step 1a: Plural forms handling
         if word.endswith("sses"):
             word = word[:-2]
         elif word.endswith("ies"):
             word = word[:-2]
         elif word.endswith("ss"):
             pass
+        elif any(word.endswith(sfx) for sfx in ["xes", "ses", "zes", "ches", "shes"]):
+            word = word[:-2]
         elif word.endswith("s"):
             word = word[:-1]
 
+        # Step 1b: Verb suffixes
         if word.endswith("eed"):
             if len(word) > 4:
                 word = word[:-1]
