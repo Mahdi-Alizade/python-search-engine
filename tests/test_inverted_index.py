@@ -5,70 +5,68 @@ from src.inverted_index import InvertedIndex
 
 @pytest.fixture
 def empty_index():
-    return InvertedIndex()
+    idx = InvertedIndex()
+    return idx
 
 
 @pytest.fixture
-def populated_index():
+def sample_index():
     idx = InvertedIndex()
     idx.add_document(
-        doc_id="doc1",
-        title="Python Backend Guide",
-        content="Python is great for backend APIs and distributed systems.",
-        url="https://example.com/python-backend"
+        doc_id="doc_a",
+        title="Fast Database Engines",
+        content="Distributed databases store partitioned records across clusters.",
+        url="https://example.com/db"
     )
     idx.add_document(
-        doc_id="doc2",
-        title="Distributed Databases",
-        content="Scalable databases support high throughput and fault tolerance.",
-        url="https://example.com/databases"
-    )
-    idx.add_document(
-        doc_id="doc3",
-        title="Python Performance",
-        content="Optimizing Python code with asynchronous tasks and caching.",
-        url="https://example.com/python-perf"
+        doc_id="doc_b",
+        title="Python Full Text Search",
+        content="Building an inverted index in Python for fast search queries.",
+        url="https://example.com/search"
     )
     return idx
 
 
-def test_add_document_and_total_count(empty_index):
+def test_add_document_increases_count(empty_index):
     assert empty_index.total_documents == 0
-    empty_index.add_document("doc1", "Fast Search", "Building a custom search engine.")
+    empty_index.add_document("doc_1", "Indexing Systems", "Inverted indexes allow instant lookup.")
     assert empty_index.total_documents == 1
-    doc = empty_index.get_document("doc1")
+
+    doc = empty_index.get_document("doc_1")
     assert doc is not None
-    assert doc.title == "Fast Search"
-    assert doc.token_count > 0
+    assert doc.title == "Indexing Systems"
+    assert doc.total_tokens > 0
 
 
-def test_get_postings_term_presence(populated_index):
-    python_postings = populated_index.get_postings("python")
-    assert "doc1" in python_postings
-    assert "doc3" in python_postings
-    assert "doc2" not in python_postings
-    assert python_postings["doc1"].term_frequency >= 1
+def test_get_postings_returns_valid_postings(sample_index):
+    search_postings = sample_index.get_postings("search")
+    assert "doc_b" in search_postings
+    assert "doc_a" not in search_postings
+
+    posting = search_postings["doc_b"]
+    assert posting.term_frequency >= 1
+    assert len(posting.positions) >= 1
 
 
-def test_get_postings_nonexistent_term(populated_index):
-    postings = populated_index.get_postings("nonexistentword123")
+def test_get_postings_missing_term(sample_index):
+    postings = sample_index.get_postings("nonexistentterm999")
     assert postings == {}
 
 
-def test_save_and_load_persistence(populated_index, tmp_path):
-    storage_file = os.path.join(tmp_path, "storage", "test_index.json")
+def test_save_and_load_disk_persistence(sample_index, tmp_path):
+    storage_path = os.path.join(tmp_path, "storage", "index_dump.json")
 
-    # Save to disk
-    populated_index.save_to_file(storage_file)
-    assert os.path.exists(storage_file)
+    # Persist current index
+    sample_index.save_to_disk(storage_path)
+    assert os.path.exists(storage_path)
 
-    # Load into fresh instance
+    # Reconstruct inside a new index instance
     new_index = InvertedIndex()
-    new_index.load_from_file(storage_file)
+    new_index.load_from_disk(storage_path)
 
-    assert new_index.total_documents == populated_index.total_documents
-    assert new_index.get_document("doc1").title == "Python Backend Guide"
+    assert new_index.total_documents == 2
+    assert new_index.get_document("doc_a").title == "Fast Database Engines"
 
-    postings = new_index.get_postings("databases")
-    assert "doc2" in postings
-    assert postings["doc2"].term_frequency >= 1
+    postings = new_index.get_postings("search")
+    assert "doc_b" in postings
+    assert postings["doc_b"].term_frequency == sample_index.get_postings("search")["doc_b"].term_frequency
