@@ -1,1 +1,3 @@
-"""Unit and Integration Tests for Search Engine."""
+"""
+Test package for automated test suites.
+"""
