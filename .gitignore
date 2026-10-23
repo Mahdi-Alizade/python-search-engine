@@ -1,35 +1,65 @@
-# Python Virtual Environment
-venv/
-env/
-ENV/
-.venv/
-
-# Python Cache & Bytecode
+# Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
 *$py.class
-*.so
-.Python
 
-# Secrets & Environment Variables
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+share/python-wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
+
+# Virtual Environments
+venv/
+.venv/
+env/
+ENV/
+env.bak/
+venv.bak/
+
+# Environment variables & secrets
 .env
-.env.*
-!.env.example
+.env.local
+.env.*.local
+*.env
 secrets.json
 
-# Storage & Index Data
-data/
-storage/*.json
-storage/*.index
-storage/*.db
-
-# IDE & Editor Settings
+# IDE and Editor files
 .vscode/
 .idea/
-*.sublime-project
-*.sublime-workspace
+*.swp
+*.swo
 
-# Testing & Coverage
+# Local data dumps, indexes, and logs
+data/raw/
+data/index/
+*.log
+logs/
+storage/
+
+# Testing and coverage
 .pytest_cache/
 .coverage
 htmlcov/
+
+# Operating System Files
+.DS_Store
+Thumbs.db
+Desktop.ini
