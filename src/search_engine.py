@@ -5,6 +5,7 @@ from src.inverted_index import InvertedIndex
 from src.tokenizer import TextTokenizer
 from src.bm25_scorer import BM25Scorer
 from src.phrase_matcher import PhraseMatcher
+from src.boolean_parser import BooleanQueryEngine
 
 
 @dataclass
@@ -20,8 +21,8 @@ class SearchResult:
 
 class SearchEngine:
     """
-    Unified search engine supporting Okapi BM25 relevance scoring
-    and exact sequential phrase matching.
+    Unified search engine supporting Okapi BM25 relevance scoring,
+    exact sequential phrase matching, and boolean filtering (AND, OR, NOT).
     """
 
     def __init__(
@@ -43,7 +44,17 @@ class SearchEngine:
 
         self.bm25 = BM25Scorer(index=self.index, k1=k1, b=b)
         self.phrase_matcher = PhraseMatcher(index=self.index, tokenizer=self.tokenizer)
+        self.boolean_engine = BooleanQueryEngine(index=self.index, tokenizer=self.tokenizer)
         self.phrase_pattern = re.compile(r'"([^"]+)"')
+        self.boolean_operators = {"AND", "OR", "NOT"}
+
+    def _has_boolean_operators(self, query: str) -> bool:
+        """Check if query contains boolean operator keywords."""
+        words = query.split()
+        for w in words:
+            if w in self.boolean_operators:
+                return True
+        return False
 
     def _extract_phrases_and_terms(self, query: str):
         """Extract quoted phrases and residual unquoted terms from query string."""
@@ -97,8 +108,7 @@ class SearchEngine:
 
     def search(self, query: str, top_k: int = 10) -> List[SearchResult]:
         """
-        Execute unified search. Applies phrase constraint filtering
-        and scores candidates using Okapi BM25.
+        Execute unified search with boolean filtering, phrase matching, and BM25 scoring.
         """
         stripped_query = query.strip()
         if not stripped_query:
@@ -107,37 +117,58 @@ class SearchEngine:
         if self.index.total_documents == 0:
             return []
 
-        phrases, free_terms = self._extract_phrases_and_terms(stripped_query)
+        # Branch 1: Handle Boolean expressions
+        if self._has_boolean_operators(stripped_query):
+            boolean_doc_ids = self.boolean_engine.evaluate(stripped_query)
+            if not boolean_doc_ids:
+                return []
 
-        # Collect all query terms for scoring and snippet generation
-        all_scoring_terms = list(free_terms)
-        for phrase in phrases:
-            phrase_tokens = self.tokenizer.process(phrase)
-            all_scoring_terms.extend(phrase_tokens)
+            # Extract terms excluding the operators for scoring
+            clean_terms = []
+            for token in stripped_query.split():
+                if token not in self.boolean_operators:
+                    clean_terms.extend(self.tokenizer.process(token))
 
-        if not all_scoring_terms:
-            return []
+            if not clean_terms:
+                doc_scores = {d_id: 1.0 for d_id in boolean_doc_ids}
+            else:
+                raw_scores = self.bm25.score_query(clean_terms)
+                doc_scores = {}
+                for d_id in boolean_doc_ids:
+                    doc_scores[d_id] = raw_scores.get(d_id, 0.1)
 
-        # Step 1: Calculate baseline BM25 scores
-        doc_scores = self.bm25.score_query(all_scoring_terms)
-        if not doc_scores:
-            return []
+            candidate_ids = boolean_doc_ids
+            scoring_terms = clean_terms
 
-        candidate_ids: Set[str] = set(doc_scores.keys())
-
-        # Step 2: Enforce exact phrase match constraint if phrases exist
-        if phrases:
+        # Branch 2: Standard Search with Phrase Matching support
+        else:
+            phrases, free_terms = self._extract_phrases_and_terms(stripped_query)
+            scoring_terms = list(free_terms)
             for phrase in phrases:
-                matching_phrase_docs = set(self.phrase_matcher.find_phrase_matches(phrase))
-                candidate_ids = candidate_ids.intersection(matching_phrase_docs)
+                phrase_tokens = self.tokenizer.process(phrase)
+                scoring_terms.extend(phrase_tokens)
 
-        if not candidate_ids:
-            return []
+            if not scoring_terms:
+                return []
 
-        # Step 3: Sort filtered candidates descending by BM25 score
+            doc_scores = self.bm25.score_query(scoring_terms)
+            if not doc_scores:
+                return []
+
+            candidate_ids = set(doc_scores.keys())
+
+            if phrases:
+                for phrase in phrases:
+                    matching_phrase_docs = set(self.phrase_matcher.find_phrase_matches(phrase))
+                    candidate_ids = candidate_ids.intersection(matching_phrase_docs)
+
+            if not candidate_ids:
+                return []
+
+        # Sort candidates descending by score
         sorted_doc_ids = sorted(
             candidate_ids,
-            key=lambda d_id: doc_scores[d_id],
+            key=lambda d_id: doc_scores.get(d_id, 0.0),
             reverse=True
         )
 
@@ -147,8 +178,9 @@ class SearchEngine:
             if not doc_record:
                 continue
 
-            rounded_score = round(doc_scores[doc_id], 4)
-            snippet = self._extract_snippet(doc_record.content, all_scoring_terms)
+            current_score = doc_scores.get(doc_id, 0.0)
+            rounded_score = round(current_score, 4)
+            snippet = self._extract_snippet(doc_record.content, scoring_terms)
 
             result_item = SearchResult(
                 doc_id=doc_record.doc_id,
