@@ -1,26 +1,27 @@
-# 🔍 Python-Based Search Engine
+# 🔍 Python-Based Full-Text Search Engine
 
-A lightweight, scalable, and fully custom full-text search engine built in Python. This project implements core Information Retrieval (IR) concepts from scratch, including tokenization, stopword filtering, custom Porter-style stemming, inverted index construction with positional tracking, disk persistence, and **TF-IDF** (Term Frequency-Inverse Document Frequency) relevance scoring.
-
----
-
-## 🚀 Key Features
-
-- **Custom NLP Pipeline:** Regex-based tokenizer, stopword removal, and zero-dependency morphological stemming.
-- **Positional Inverted Index:** Maps terms to document postings with frequency and exact positional occurrences.
-- **TF-IDF Relevance Ranking:** Computes document relevance dynamically using smooth IDF and normalized term frequencies.
-- **Contextual Snippets:** Automatically generates search snippets highlighting matched query terms in context.
-- **Document Ingestion:** Ingests raw `.txt` files or structured `.json` collections recursively from directories.
-- **Disk Persistence:** Serializes and deserializes the full index state to and from disk in JSON format.
-- **Interactive CLI:** Terminal-based user interface for real-time querying, ingestion, and index inspection.
-- **Automated Test Suite:** Comprehensive unit and integration testing via `pytest`.
+A high-performance, modular full-text search engine built entirely from scratch in Python. It includes a custom positional inverted index, **Okapi BM25** relevance ranking, exact phrase matching (`"..."`), boolean logic operators (`AND`, `OR`, `NOT`), Levenshtein-based spelling correction (*Did you mean...*), interactive terminal CLI, and an asynchronous **FastAPI REST API**.
 
 ---
 
-## 🏛️ System Architecture
+## 🚀 Key Architectural Features
 
+- **Text Processing Pipeline:** Clean regex-based tokenizer, stopword filtering, and zero-dependency morphological stemming.
+- **Positional Inverted Index:** Tracks document frequencies and exact token positions for proximity and phrase verification.
+- **Okapi BM25 Ranking:** Modern probabilistic information retrieval model with length normalization ($b=0.75$) and term frequency saturation ($k_1=1.5$).
+- **Exact Phrase Search:** Enforces strictly sequential token matching via word position offsets.
+- **Boolean Query Engine:** Supports logical set operations (`AND`, `OR`, `NOT`) directly over index postings.
+- **Spell Correction & Typo Tolerance:** Suggests vocabulary corrections using dynamic programming Levenshtein distance.
+- **Document Ingestion:** Ingests raw `.txt` files and structured `.json` collections recursively.
+- **Disk Persistence:** Serializes and restores full corpus indices to/from disk in portable JSON format.
+- **Dual Interfaces:** Full interactive terminal CLI and production-ready FastAPI REST API with OpenAPI/Swagger docs.
+- **Automated Test Suite:** Comprehensive coverage across all engine layers with 45+ unit and integration tests.
 
-  ┌─────────────────────────────────────────────────────────────┐
+---
+
+## 🏛️ System Pipeline
+
+┌─────────────────────────────────────────────────────────────┐
 │                       Text Corpus                           │
 │                 (.txt files / .json datasets)               │
 └──────────────────────────────┬──────────────────────────────┘
@@ -33,42 +34,28 @@ A lightweight, scalable, and fully custom full-text search engine built in Pytho
 │
 ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Inverted Index Store                     │
+│                 Positional Inverted Index                   │
 │        Term ──► { Doc_ID: { Frequency, [Positions] } }      │
 │                     (JSON Persistence)                      │
-└──────────────────────────────┬──────────────────────────────┘
-│
-┌───────────────┴───────────────┐
-▼                               ▼
+└──────────────┬──────────────────────────────┬───────────────┘
+│                              │
+▼                              ▼
 ┌─────────────────────────────┐ ┌─────────────────────────────┐
-│        Query Engine         │ │    TF-IDF Ranking Engine    │
-│  (Tokenize & Fetch Postings)│ │  Score = Σ (TF × Smooth IDF)│
+│     Phrase & Boolean Engine │ │       Okapi BM25 Scorer     │
+│  (Positional & Set Filters) │ │  (Length Normalized Metric) │
 └──────────────┬──────────────┘ └──────────────┬──────────────┘
 │                               │
 └───────────────┬───────────────┘
 ▼
 ┌─────────────────────────────────────────────────────────────┐
-│                    Ranked Search Results                    │
-│             (Top-K Results + Context Snippets)              │
-└─────────────────────────────────────────────────────────────┘
+│                 Spell Corrector & Snippets                  │
+│         (Levenshtein Distance + Context Extraction)         │
+└──────────────────────────────┬──────────────────────────────┘
+│
+┌───────────────┴───────────────┐
+▼                               ▼
+Terminal CLI App                 FastAPI REST API
 
-
----
-
-## 📐 Scoring Formula
-
-The relevance score of a document $d$ for a query $Q$ is computed as:
-
-$$\text{Score}(Q, d) = \sum_{t \in Q} \text{TF}(t, d) \times \text{IDF}(t, D)$$
-
-Where:
-- **Normalized Term Frequency ($\text{TF}$):**
-  $$\text{TF}(t, d) = \frac{f_{t,d}}{|d|}$$
-  *(where $f_{t,d}$ is the frequency of term $t$ in document $d$, and $|d|$ is the total token count of $d$)*
-
-- **Smooth Inverse Document Frequency ($\text{IDF}$):**
-  $$\text{IDF}(t, D) = \ln\left(\frac{|D|}{|\{d \in D : t \in d\}|} + 1.0\right)$$
-  *(where $|D|$ is the total number of documents in the index)*
 
 ---
 
@@ -77,75 +64,104 @@ Where:
 python-search-engine/
 │
 ├── data/
-│   └── documents/              # Local documents storage (git-ignored)
+│   └── documents/              # Local corpus files (git-ignored)
 │       └── sample_data.json
 ├── src/
 │   ├── init.py
-│   ├── text_processor.py       # Tokenization, stopwords, stemming
-│   ├── inverted_index.py       # Postings list & persistence
-│   ├── search_engine.py        # TF-IDF ranking & snippet extraction
-│   ├── document_ingestion.py   # Text & JSON ingestion handlers
-│   └── cli.py                  # Interactive CLI interface
+│   ├── models.py               # DocumentRecord & TermPosting data models
+│   ├── tokenizer.py            # Tokenizer, stopword removal & stemmer
+│   ├── text_processor.py       # General text processor pipeline
+│   ├── inverted_index.py       # Positional inverted index & serialization
+│   ├── bm25_scorer.py          # Okapi BM25 scoring formulation
+│   ├── phrase_matcher.py       # Positional exact phrase matching
+│   ├── boolean_parser.py       # Boolean logic (AND, OR, NOT) evaluator
+│   ├── spell_corrector.py      # Levenshtein distance typo corrector
+│   ├── search_engine.py        # Unified query engine & snippet builder
+│   ├── document_ingestion.py   # Text & JSON batch ingestion handler
+│   ├── cli.py                  # Terminal CLI interactive interface
+│   ├── api_schemas.py          # Pydantic schemas for API endpoints
+│   └── api.py                  # FastAPI REST API web service
 │
 ├── storage/                    # Serialized index storage (git-ignored)
 ├── tests/
-│   ├── init.py
-│   ├── test_text_processor.py
+│   ├── test_models.py
+│   ├── test_tokenizer.py
 │   ├── test_inverted_index.py
+│   ├── test_bm25_scorer.py
+│   ├── test_phrase_matcher.py
+│   ├── test_boolean_parser.py
+│   ├── test_spell_corrector.py
 │   ├── test_search_engine.py
-│   └── test_document_ingestion.py
+│   ├── test_document_ingestion.py
+│   └── test_api.py
 │
-├── .env.example                # Configuration blueprint
-├── .gitignore                  # Git privacy & hygiene rules
-├── main.py                     # Application entry point
-├── requirements.txt            # Dependency definitions
-└── README.md                   # Project documentation
+├── .env.example
+├── .gitignore
+├── main.py
+├── requirements.txt
+└── README.md
 
 
 ---
 
-## 🛠️ Getting Started
+## 🛠️ Installation & Setup
 
-### Prerequisites
-- Python 3.10+
-- PowerShell, Bash, or Zsh
-
-### 1. Clone the Repository & Setup Environment
-```bash
-git clone [https://github.com/your-username/python-search-engine.git](https://github.com/your-username/python-search-engine.git)
-cd python-search-engine
-
-# Initialize and activate virtual environment
+### 1. Initialize Virtual Environment
+```powershell
 python -m venv venv
-.\venv\Scripts\activate      # Windows (PowerShell)
-# source venv/bin/activate   # Linux / macOS
+.\venv\Scripts\Activate.ps1
 2. Install Dependencies
-Bash
+PowerShell
 pip install -r requirements.txt
 3. Setup Environment Variables
-Bash
+PowerShell
 cp .env.example .env
-💻 Usage
-Run Interactive CLI
-Bash
+💻 Running the Search Engine
+Option A: Interactive Terminal CLI
+PowerShell
 python main.py
-CLI Command Options
-Commands:
-  1. search <query>       - Search ranked documents
-  2. ingest <path>        - Ingest file or folder (default: data/documents)
-  3. save [filepath]      - Save current index to disk
-  4. load [filepath]      - Load index from disk
-  5. stats                - View index metrics & total term count
-  6. exit                 - Exit application
-🧪 Running Tests
-Execute the automated test suite with verbose output:
+Supported CLI queries:
+
+Standard Search: search distributed systems
+
+Exact Phrase: search "asynchronous programming"
+
+Boolean AND: search Python AND asyncio
+
+Boolean NOT: search Python NOT backend
+
+Auto-Correction: Searching for pythn will trigger 💡 Did you mean: python
+
+Option B: FastAPI REST Service
+Launch the async API server:
+
+PowerShell
+uvicorn src.api:app --reload --port 8000
+Interactive Swagger Documentation: http://127.0.0.1:8000/docs
+
+System Health Check:
 
 Bash
+curl [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
+Execute Search Query:
+
+Bash
+curl "[http://127.0.0.1:8000/api/v1/search?q=FastAPI&limit=5](http://127.0.0.1:8000/api/v1/search?q=FastAPI&limit=5)"
+Index New Document on the Fly:
+
+Bash
+curl -X POST "[http://127.0.0.1:8000/api/v1/documents](http://127.0.0.1:8000/api/v1/documents)" \
+     -H "Content-Type: application/json" \
+     -d '{"doc_id": "doc_cloud", "title": "Cloud Computing", "content": "Elastic compute clusters in the cloud."}'
+🧪 Running Automated Tests
+Run the full suite of 45+ unit and integration tests:
+
+PowerShell
 pytest -v
 🔒 Security & Privacy
-Sensitive files, runtime logs, cache binaries, and index storage directories are strictly excluded from version control via .gitignore.
+All local data dumps, persistent index JSON binaries, virtual environment directories, and .env files are strictly excluded from version control via .gitignore.
 
-No proprietary API keys or confidential credentials are embedded in code or configuration samples.
+No sensitive keys or external cloud dependencies are required.
 
 📄 License
-This project is open-source and available under the MIT License.
+This project is open-source and licensed under the MIT License.
