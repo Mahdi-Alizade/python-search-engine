@@ -44,9 +44,22 @@ def test_search_single_keyword(test_search_engine):
 def test_search_ranking_relevance(test_search_engine):
     results = test_search_engine.search("Python search engines")
     assert len(results) >= 2
-    # Document doc_search_core contains all search terms and should rank highest
+    # Document doc_search_core contains all matching keywords and ranks on top
     assert results[0].doc_id == "doc_search_core"
     assert results[0].score > results[1].score
+
+
+def test_search_exact_phrase_matching(test_search_engine):
+    # Search for an exact phrase that only exists sequentially in doc_py_async
+    results = test_search_engine.search('"asynchronous programming"')
+    assert len(results) == 1
+    assert results[0].doc_id == "doc_py_async"
+
+
+def test_search_phrase_no_match(test_search_engine):
+    # Terms exist in the corpus but not sequentially together
+    results = test_search_engine.search('"programming relational"')
+    assert results == []
 
 
 def test_search_non_matching_query(test_search_engine):
