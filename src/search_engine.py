@@ -1,9 +1,10 @@
-import math
+import re
 from dataclasses import dataclass
-from typing import List, Optional
+from typing import List, Optional, Set
 from src.inverted_index import InvertedIndex
-from src.models import DocumentRecord
 from src.tokenizer import TextTokenizer
+from src.bm25_scorer import BM25Scorer
+from src.phrase_matcher import PhraseMatcher
 
 
 @dataclass
@@ -19,10 +20,17 @@ class SearchResult:
 
 class SearchEngine:
     """
-    Search engine ranking documents using Term Frequency - Inverse Document Frequency (TF-IDF).
+    Unified search engine supporting Okapi BM25 relevance scoring
+    and exact sequential phrase matching.
     """
 
-    def __init__(self, index: Optional[InvertedIndex] = None, tokenizer: Optional[TextTokenizer] = None):
+    def __init__(
+        self,
+        index: Optional[InvertedIndex] = None,
+        tokenizer: Optional[TextTokenizer] = None,
+        k1: float = 1.5,
+        b: float = 0.75
+    ):
         if tokenizer is not None:
             self.tokenizer = tokenizer
         else:
@@ -33,17 +41,24 @@ class SearchEngine:
         else:
             self.index = InvertedIndex(tokenizer=self.tokenizer)
 
-    def _calculate_smooth_idf(self, term: str) -> float:
-        """Calculate smoothed inverse document frequency."""
-        postings = self.index.get_postings(term)
-        doc_frequency = len(postings)
-        if doc_frequency == 0:
-            return 0.0
+        self.bm25 = BM25Scorer(index=self.index, k1=k1, b=b)
+        self.phrase_matcher = PhraseMatcher(index=self.index, tokenizer=self.tokenizer)
+        self.phrase_pattern = re.compile(r'"([^"]+)"')
 
-        total_docs = self.index.total_documents
-        # Using smooth logarithmic IDF formulation
-        idf_ratio = (total_docs / doc_frequency) + 1.0
-        return math.log(idf_ratio)
+    def _extract_phrases_and_terms(self, query: str):
+        """Extract quoted phrases and residual unquoted terms from query string."""
+        raw_phrases = self.phrase_pattern.findall(query)
+        cleaned_phrases = []
+        for p in raw_phrases:
+            stripped = p.strip()
+            if stripped:
+                cleaned_phrases.append(stripped)
+
+        # Remove quoted parts to leave free terms
+        unquoted_query = self.phrase_pattern.sub(" ", query)
+        free_terms = self.tokenizer.process(unquoted_query)
+
+        return cleaned_phrases, free_terms
 
     def _extract_snippet(self, raw_content: str, query_terms: List[str], max_chars: int = 140) -> str:
         """Construct a contextual text snippet around matched terms."""
@@ -81,55 +96,61 @@ class SearchEngine:
         return snippet_text
 
     def search(self, query: str, top_k: int = 10) -> List[SearchResult]:
-        """Rank matching documents based on TF-IDF relevance."""
-        query_tokens = self.tokenizer.process(query)
-        if not query_tokens:
+        """
+        Execute unified search. Applies phrase constraint filtering
+        and scores candidates using Okapi BM25.
+        """
+        stripped_query = query.strip()
+        if not stripped_query:
             return []
 
         if self.index.total_documents == 0:
             return []
 
-        doc_accumulated_scores = {}
+        phrases, free_terms = self._extract_phrases_and_terms(stripped_query)
 
-        for term in query_tokens:
-            postings_map = self.index.get_postings(term)
-            if not postings_map:
-                continue
+        # Collect all query terms for scoring and snippet generation
+        all_scoring_terms = list(free_terms)
+        for phrase in phrases:
+            phrase_tokens = self.tokenizer.process(phrase)
+            all_scoring_terms.extend(phrase_tokens)
 
-            term_idf = self._calculate_smooth_idf(term)
-
-            for doc_id, posting in postings_map.items():
-                doc_record = self.index.get_document(doc_id)
-                if not doc_record:
-                    continue
-
-                if doc_record.total_tokens == 0:
-                    continue
-
-                # Term frequency normalized by document token count
-                tf = posting.term_frequency / doc_record.total_tokens
-                score_contribution = tf * term_idf
-
-                current_score = doc_accumulated_scores.get(doc_id, 0.0)
-                doc_accumulated_scores[doc_id] = current_score + score_contribution
-
-        if not doc_accumulated_scores:
+        if not all_scoring_terms:
             return []
 
-        # Sort documents descending by score
-        ranked_doc_ids = sorted(
-            doc_accumulated_scores.keys(),
-            key=lambda d_id: doc_accumulated_scores[d_id],
+        # Step 1: Calculate baseline BM25 scores
+        doc_scores = self.bm25.score_query(all_scoring_terms)
+        if not doc_scores:
+            return []
+
+        candidate_ids: Set[str] = set(doc_scores.keys())
+
+        # Step 2: Enforce exact phrase match constraint if phrases exist
+        if phrases:
+            for phrase in phrases:
+                matching_phrase_docs = set(self.phrase_matcher.find_phrase_matches(phrase))
+                candidate_ids = candidate_ids.intersection(matching_phrase_docs)
+
+        if not candidate_ids:
+            return []
+
+        # Step 3: Sort filtered candidates descending by BM25 score
+        sorted_doc_ids = sorted(
+            candidate_ids,
+            key=lambda d_id: doc_scores[d_id],
             reverse=True
         )
 
         results = []
-        for doc_id in ranked_doc_ids[:top_k]:
+        for doc_id in sorted_doc_ids[:top_k]:
             doc_record = self.index.get_document(doc_id)
-            rounded_score = round(doc_accumulated_scores[doc_id], 4)
-            snippet = self._extract_snippet(doc_record.content, query_tokens)
+            if not doc_record:
+                continue
 
-            item = SearchResult(
+            rounded_score = round(doc_scores[doc_id], 4)
+            snippet = self._extract_snippet(doc_record.content, all_scoring_terms)
+
+            result_item = SearchResult(
                 doc_id=doc_record.doc_id,
                 title=doc_record.title,
                 content=doc_record.content,
@@ -137,6 +158,6 @@ class SearchEngine:
                 score=rounded_score,
                 snippet=snippet
             )
-            results.append(item)
+            results.append(result_item)
 
         return results
